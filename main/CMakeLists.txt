@@ -1,15 +1,17 @@
-set(esp_idf_common "../../common")
-set(examples_common "../../../common")
+set(esp_idf_common "../submodules/golioth-firmware-sdk/examples/esp_idf/common")
+set(examples_common "../submodules/golioth-firmware-sdk/examples/common")
 
 set(includes
+    "."
     "${esp_idf_common}"
     "${examples_common}"
 )
 
 set(srcs
     "app_main.c"
+    "app_settings.c"
+    "app_rpc.c"
     "${esp_idf_common}/shell.c"
-    "${esp_idf_common}/wifi.c"
     "${esp_idf_common}/nvs.c"
     "${esp_idf_common}/sample_credentials.c"
 )
@@ -22,7 +24,10 @@ set(deps
     "json"
     "driver"
     "esp_hw_support"
-    "esp_wifi"
+    "esp_event"
+    "esp_netif"
+    "esp_coex"
+    "openthread"
 )
 
 idf_component_register(
@@ -30,14 +35,9 @@ idf_component_register(
     SRCS "${srcs}"
     PRIV_REQUIRES "${deps}"
 )
+
 list(APPEND EXTRA_C_FLAGS_LIST
     -Werror
 )
+
 component_compile_options(${EXTRA_C_FLAGS_LIST})
-
-add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/merged.bin
-                   COMMAND esptool.py --chip ${IDF_TARGET} merge_bin -o ${CMAKE_BINARY_DIR}/merged.bin @flash_args
-                   WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-                   DEPENDS app)
-
-add_custom_target(mergebin ALL DEPENDS ${CMAKE_BINARY_DIR}/merged.bin)

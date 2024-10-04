@@ -3,88 +3,168 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#include "nvs.h"
-#include "shell.h"
-#include "wifi.h"
-#include "sample_credentials.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/semphr.h"
-#include <golioth/client.h>
+#include <stdio.h>
+#include <unistd.h>
 #include <string.h>
 
-#define TAG "hello"
+//#include "portmacro.h"
+#include "sdkconfig.h"
+#include "esp_err.h"
+#include "esp_event.h"
+#include "esp_log.h"
+#include "esp_netif.h"
+#include "esp_netif_types.h"
+#include "esp_openthread.h"
+#include "esp_openthread_lock.h"
+#include "esp_openthread_netif_glue.h"
+#include "esp_openthread_types.h"
+#include "esp_ot_config.h"
+#include "esp_vfs_eventfd.h"
+#include "freertos/task.h"
+#include "hal/uart_types.h"
+#include "openthread/instance.h"
+#include "openthread/logging.h"
+#include "openthread/tasklet.h"
 
-// Given if/when the we have a connection to Golioth
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+
+#include "nvs.h"
+#include "shell.h"
+#include "sample_credentials.h"
+#include <golioth/client.h>
+#include "golioth/golioth_sys.h"
+#include <golioth/stream.h>
+#include <golioth/settings.h>
+#include <golioth/fw_update.h>
+#include <zcbor_decode.h>
+#include <zcbor_encode.h>
+
+#include "app_settings.h"
+#include "app_rpc.h"
+
+#define TAG "ot_main"
+
 static SemaphoreHandle_t _connected_sem = NULL;
+static const char *_current_version = "1.0.4";
 
 static void on_client_event(struct golioth_client *client,
-                            enum golioth_client_event event,
-                            void *arg)
+			    enum golioth_client_event event,
+			    void *arg)
 {
-    bool is_connected = (event == GOLIOTH_CLIENT_EVENT_CONNECTED);
-    if (is_connected)
-    {
-        xSemaphoreGive(_connected_sem);
-    }
-    GLTH_LOGI(TAG, "Golioth client %s", is_connected ? "connected" : "disconnected");
+	bool is_connected = (event == GOLIOTH_CLIENT_EVENT_CONNECTED);
+	if (is_connected) {
+		xSemaphoreGive(_connected_sem);
+	}
+	GLTH_LOGI(TAG, "Golioth client %s", is_connected ? "connected" : "disconnected");
+}
+
+
+static esp_netif_t *init_openthread_netif(const esp_openthread_platform_config_t *config)
+{
+	esp_netif_config_t cfg = ESP_NETIF_DEFAULT_OPENTHREAD();
+	esp_netif_t *netif = esp_netif_new(&cfg);
+	assert(netif != NULL);
+
+	ESP_ERROR_CHECK(esp_netif_attach(netif, esp_openthread_netif_glue_init(config)));
+
+	return netif;
+}
+
+static void async_stream_handler(struct golioth_client *client,
+                                 const struct golioth_response *response,
+                                 const char *path,
+				 void *arg)
+{
+	if (response->status != GOLIOTH_OK) {
+		GLTH_LOGW(TAG, "Failed to push async stream payload: %d", response->status);
+		return;
+	}
+
+	GLTH_LOGI(TAG, "Successfully pushed async stream payload");
+
+	return;
+}
+
+static void golioth_task(void *aContext)
+{
+	int counter = 0;
+
+	const struct golioth_client_config *glth_config = golioth_sample_credentials_get();
+	struct golioth_client *glth_client = golioth_client_create(glth_config);
+	assert(glth_client);
+
+	_connected_sem = xSemaphoreCreateBinary();
+
+	golioth_client_register_event_callback(glth_client, on_client_event, NULL);
+
+	GLTH_LOGW(TAG, "Waiting for connection to Golioth...");
+	xSemaphoreTake(_connected_sem, portMAX_DELAY);
+
+	/* Register Settings service */
+	golioth_fw_update_init(glth_client, _current_version);
+	app_settings_register(glth_client);
+	app_rpc_register(glth_client);
+
+	while (true) {
+		++counter;
+		uint8_t buf[15];
+
+		ZCBOR_STATE_E(zse, 1, buf, sizeof(buf), 1);
+		
+		bool ok = zcbor_map_start_encode(zse, 1) && \
+		zcbor_tstr_put_lit(zse, "counter") && \
+		zcbor_float32_put(zse, counter) && \
+		zcbor_map_end_encode(zse, 1);
+
+		if (!ok) {
+			GLTH_LOGE(TAG, "Failed to close CBOR map");
+			return;
+		}
+	   
+		size_t payload_size = (intptr_t) zse->payload - (intptr_t) buf;
+	   
+		golioth_stream_set_async(glth_client, "", GOLIOTH_CONTENT_TYPE_CBOR, buf,
+	                                 payload_size, async_stream_handler, NULL);
+	   
+		/* If LOOP_DELAY_S is changed, it won't take effect unitl the 
+		   previous value has expired
+		*/
+	   	vTaskDelay((get_loop_delay_s() * 1000) / portTICK_PERIOD_MS);
+	}
 }
 
 void app_main(void)
 {
-    int counter = 0;
+	GLTH_LOGI(TAG, "Starting OpenThread Demo v%s", _current_version);
 
-    // Initialize NVS first. If credentials are not hardcoded in sdkconfig.defaults,
-    // it is assumed that WiFi and Golioth PSK credentials are stored in NVS.
-    nvs_init();
+	esp_vfs_eventfd_config_t eventfd_config = {
+		.max_fds = 3,
+	};
+	
+	nvs_init();
+	shell_start();
+	ESP_ERROR_CHECK(esp_event_loop_create_default());
+	ESP_ERROR_CHECK(esp_netif_init());
+	ESP_ERROR_CHECK(esp_vfs_eventfd_register(&eventfd_config));
 
-    // Create a background shell/CLI task (type "help" to see a list of supported commands)
-    shell_start();
+	esp_openthread_platform_config_t ot_config = {
+		.radio_config = ESP_OPENTHREAD_DEFAULT_RADIO_CONFIG(),
+		.port_config = ESP_OPENTHREAD_DEFAULT_PORT_CONFIG(),
+	};
 
-    // If the WiFi credentials haven't been set in NVS, we will wait here for the user
-    // to input them via the shell.
-    if (!nvs_credentials_are_set())
-    {
-        ESP_LOGW(TAG,
-                 "WiFi credentials are not set. "
-                 "Use the shell settings commands to set them.");
+	xTaskCreate(golioth_task, "golioth_task", 10240, xTaskGetCurrentTaskHandle(), 5, NULL);
 
-        while (!nvs_credentials_are_set())
-        {
-            vTaskDelay(1000 / portTICK_PERIOD_MS);
-        }
-    }
+	// Initialize the OpenThread stack
+	ESP_ERROR_CHECK(esp_openthread_init(&ot_config));
 
-    // Initialize WiFi and wait for it to connect
-    wifi_init(nvs_read_wifi_ssid(), nvs_read_wifi_password());
-    wifi_wait_for_connected();
+	esp_netif_t *openthread_netif;
+	openthread_netif = init_openthread_netif(&ot_config);
+	esp_netif_set_default_netif(openthread_netif);
+	
+	otOperationalDatasetTlvs dataset;
+	otError error = otDatasetGetActiveTlvs(esp_openthread_get_instance(), &dataset);
+	ESP_ERROR_CHECK(esp_openthread_auto_start((error == OT_ERROR_NONE) ? &dataset : NULL));
+	esp_openthread_launch_mainloop();
 
-    const struct golioth_client_config *config = golioth_sample_credentials_get();
-
-    // Now we are ready to connect to the Golioth cloud.
-    //
-    // To start, we need to create a client. The function golioth_client_create will
-    // dynamically create a client and return a handle to it.
-    //
-    // The client itself runs in a separate task, so once this function returns,
-    // there will be a new task running in the background.
-    //
-    // As soon as the task starts, it will try to connect to Golioth using the
-    // CoAP protocol over DTLS, with the PSK ID and PSK for authentication.
-
-    struct golioth_client *client = golioth_client_create(config);
-    assert(client);
-
-    _connected_sem = xSemaphoreCreateBinary();
-
-    golioth_client_register_event_callback(client, on_client_event, NULL);
-
-    GLTH_LOGW(TAG, "Waiting for connection to Golioth...");
-    xSemaphoreTake(_connected_sem, portMAX_DELAY);
-
-    while (true)
-    {
-        GLTH_LOGI(TAG, "Sending hello! %d", counter);
-        ++counter;
-        vTaskDelay(5000 / portTICK_PERIOD_MS);
-    }
 }
