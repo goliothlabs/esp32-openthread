@@ -123,12 +123,12 @@ Golioth Features
 
 This firmware implements the following features from the Golioth Zephyr SDK:
 
-- `Device Settings Service <https://docs.golioth.io/firmware/zephyr-device-sdk/device-settings-service>`_
-- `LightDB State Client <https://docs.golioth.io/firmware/zephyr-device-sdk/light-db/>`_
-- `LightDB Stream Client <https://docs.golioth.io/firmware/zephyr-device-sdk/light-db-stream/>`_
-- `Logging Client <https://docs.golioth.io/firmware/zephyr-device-sdk/logging/>`_
-- `Over-the-Air (OTA) Firmware Upgrade <https://docs.golioth.io/firmware/device-sdk/firmware-upgrade>`_
-- `Remote Procedure Call (RPC) <https://docs.golioth.io/firmware/zephyr-device-sdk/remote-procedure-call>`_
+- `Device Settings Service <https://docs.golioth.io/firmware/golioth-firmware-sdk/device-settings-service/>`_
+- `LightDB State Client <https://docs.golioth.io/firmware/golioth-firmware-sdk/light-db-state/>`_
+- `LightDB Stream Client <https://docs.golioth.io/firmware/golioth-firmware-sdk/stream-client/>`_
+- `Logging Client <https://docs.golioth.io/device-management/logging/>`_
+- `Over-the-Air (OTA) Firmware Upgrade <https://docs.golioth.io/firmware/golioth-firmware-sdk/firmware-upgrade/firmware-upgrade>`_
+- `Remote Procedure Call (RPC) <https://docs.golioth.io/firmware/golioth-firmware-sdk/remote-procedure-call>`_
 
 
 Settings Service
