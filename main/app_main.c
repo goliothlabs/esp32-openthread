@@ -7,7 +7,6 @@
 #include <unistd.h>
 #include <string.h>
 
-//#include "portmacro.h"
 #include "sdkconfig.h"
 #include "esp_err.h"
 #include "esp_event.h"
@@ -40,13 +39,16 @@
 #include <zcbor_decode.h>
 #include <zcbor_encode.h>
 
-#include "app_settings.h"
 #include "app_rpc.h"
+#include "app_settings.h"
+#include "app_state.h"
 
 #define TAG "ot_main"
 
+struct golioth_client *glth_client;
+
 static SemaphoreHandle_t _connected_sem = NULL;
-static const char *_current_version = "1.0.4";
+static const char *_current_version = "1.0.0";
 
 static void on_client_event(struct golioth_client *client,
 			    enum golioth_client_event event,
@@ -86,12 +88,56 @@ static void async_stream_handler(struct golioth_client *client,
 	return;
 }
 
+static void send_stream_payload(int* counter)
+{
+
+	uint8_t cbor_buf[15];
+
+	/* Encode CBOR payload */
+	ZCBOR_STATE_E(zse, 1, cbor_buf, sizeof(cbor_buf), 1);
+	
+	bool ok = zcbor_map_start_encode(zse, 1) && \
+		  zcbor_tstr_put_lit(zse, "counter") && \
+		  zcbor_float32_put(zse, *counter) && \
+		  zcbor_map_end_encode(zse, 1);
+
+	if (!ok) {
+		GLTH_LOGE(TAG, "Failed to close CBOR map");
+		return;
+	}
+   
+	size_t payload_size = (intptr_t) zse->payload - (intptr_t) cbor_buf;
+   
+	/* Stream CBOR payload */
+	golioth_stream_set_async(glth_client,
+				 "cbor",
+				 GOLIOTH_CONTENT_TYPE_CBOR,
+				 cbor_buf,
+                                 payload_size,
+				 async_stream_handler,
+				 NULL);
+   
+	/* Encode JSON payload */
+	char json_buf[sizeof("{\"counter\":4294967295}")];
+	snprintf(json_buf, sizeof(json_buf), "{\"counter\":%d}", *counter);
+
+	/* Stream JSON payload */
+	golioth_stream_set_async(glth_client,
+				 "json",
+				 GOLIOTH_CONTENT_TYPE_JSON,
+				 (const uint8_t *) json_buf,
+                                 payload_size,
+				 async_stream_handler,
+				 NULL);
+
+}
+
 static void golioth_task(void *aContext)
 {
 	int counter = 0;
 
 	const struct golioth_client_config *glth_config = golioth_sample_credentials_get();
-	struct golioth_client *glth_client = golioth_client_create(glth_config);
+	glth_client = golioth_client_create(glth_config);
 	assert(glth_client);
 
 	_connected_sem = xSemaphoreCreateBinary();
@@ -101,34 +147,26 @@ static void golioth_task(void *aContext)
 	GLTH_LOGW(TAG, "Waiting for connection to Golioth...");
 	xSemaphoreTake(_connected_sem, portMAX_DELAY);
 
-	/* Register Settings service */
+	/* Initialize DFU components */
 	golioth_fw_update_init(glth_client, _current_version);
+	
+	/* Register Settings service */
 	app_settings_register(glth_client);
+	
+	/* Register RPC service */
 	app_rpc_register(glth_client);
 
+	/* Observe State service data */
+	app_state_observe(glth_client);
+
 	while (true) {
+
+		send_stream_payload(&counter);
 		++counter;
-		uint8_t buf[15];
 
-		ZCBOR_STATE_E(zse, 1, buf, sizeof(buf), 1);
-		
-		bool ok = zcbor_map_start_encode(zse, 1) && \
-		zcbor_tstr_put_lit(zse, "counter") && \
-		zcbor_float32_put(zse, counter) && \
-		zcbor_map_end_encode(zse, 1);
 
-		if (!ok) {
-			GLTH_LOGE(TAG, "Failed to close CBOR map");
-			return;
-		}
-	   
-		size_t payload_size = (intptr_t) zse->payload - (intptr_t) buf;
-	   
-		golioth_stream_set_async(glth_client, "", GOLIOTH_CONTENT_TYPE_CBOR, buf,
-	                                 payload_size, async_stream_handler, NULL);
-	   
-		/* If LOOP_DELAY_S is changed, it won't take effect unitl the 
-		   previous value has expired
+		/* fix: If LOOP_DELAY_S is changed, it won't take effect unitl the 
+		   previous value has expired.
 		*/
 	   	vTaskDelay((get_loop_delay_s() * 1000) / portTICK_PERIOD_MS);
 	}
