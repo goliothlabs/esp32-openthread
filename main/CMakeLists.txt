@@ -11,6 +11,7 @@ set(srcs
     "app_main.c"
     "app_settings.c"
     "app_rpc.c"
+    "app_state.c"
     "${esp_idf_common}/shell.c"
     "${esp_idf_common}/nvs.c"
     "${esp_idf_common}/sample_credentials.c"
