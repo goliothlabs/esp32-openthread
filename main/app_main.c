@@ -43,6 +43,8 @@
 #include "app_settings.h"
 #include "app_state.h"
 
+#include "esp_openthread_cli.h"
+
 #define TAG "ot_main"
 
 struct golioth_client *glth_client;
@@ -195,6 +197,19 @@ void app_main(void)
 
 	// Initialize the OpenThread stack
 	ESP_ERROR_CHECK(esp_openthread_init(&ot_config));
+
+	// Initialize the OpenThread cli
+	#if CONFIG_OPENTHREAD_CLI
+		esp_openthread_cli_init();
+	#endif
+
+	#if CONFIG_OPENTHREAD_CLI_ESP_EXTENSION
+		esp_cli_custom_command_init();
+	#endif
+
+	#if CONFIG_OPENTHREAD_CLI
+		esp_openthread_cli_create_task();
+	#endif
 
 	esp_netif_t *openthread_netif;
 	openthread_netif = init_openthread_netif(&ot_config);
