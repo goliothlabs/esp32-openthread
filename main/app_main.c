@@ -199,10 +199,9 @@ void app_main(void)
 	esp_netif_t *openthread_netif;
 	openthread_netif = init_openthread_netif(&ot_config);
 	esp_netif_set_default_netif(openthread_netif);
-	
-	otOperationalDatasetTlvs dataset;
-	otError error = otDatasetGetActiveTlvs(esp_openthread_get_instance(), &dataset);
-	ESP_ERROR_CHECK(esp_openthread_auto_start((error == OT_ERROR_NONE) ? &dataset : NULL));
+
+	// Generate the Thread Dataset based on the Kconfig configuration
+	esp_openthread_auto_start(NULL);
 	esp_openthread_launch_mainloop();
 
 }
