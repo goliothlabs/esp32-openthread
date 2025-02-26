@@ -24,16 +24,17 @@ int32_t _example_int1 = 1;
 struct app_state parsed_state;
 
 static void async_handler(struct golioth_client *client,
-			 const struct golioth_response *response,
-			 const char *path,
-			 void *arg)
+                          enum golioth_status status,
+                          const struct golioth_coap_rsp_code *coap_rsp_code,
+                          const char *path,
+                          void *arg)
 {
-	if (response->status != GOLIOTH_OK) {
-		GLTH_LOGW(TAG, "Failed to set state: %d", response->status);
+	if (status != GOLIOTH_OK) {
+		GLTH_LOGW(TAG, "Failed to set state: %d", status);
 		return;
 	}
 
-	GLTH_LOGD(TAG, "State successfully set");
+	GLTH_LOGI(TAG, "State successfully set");
 }
 
 int app_state_reset_desired(void)
@@ -107,7 +108,6 @@ int app_state_update_actual(void)
 	if (err) {
 		GLTH_LOGE(TAG, "Unable to write to LightDB State: %d", err);
 	}
-
 	return err;
 }
 
@@ -120,24 +120,24 @@ static int zcbor_map_int32_decode(zcbor_state_t *zsd, void *value)
 		GLTH_LOGW(TAG, "Desired value decode error = %d", ok);
 		return -1;
 	}
-
 	return 0;
 }
 
 static void app_state_desired_handler(struct golioth_client *client,
-				      const struct golioth_response *response,
-				      const char *path,
-				      const uint8_t *payload,
-				      size_t payload_size,
-				      void *arg)
+                                     enum golioth_status status,
+                                     const struct golioth_coap_rsp_code *coap_rsp_code,
+                                     const char *path,
+                                     const uint8_t *payload,
+                                     size_t payload_size,
+                                     void *arg)
 {
 	int err = 0;
 	int ret = 0;
 	
-	if (response->status != GOLIOTH_OK) {
+	if (status != GOLIOTH_OK) {
 		GLTH_LOGE(TAG, "Failed to receive '%s' endpoint: %d",
 			  APP_STATE_DESIRED_ENDP,
-		 	  response->status);
+			  status);
 		return;
 	}
 
@@ -238,9 +238,7 @@ int app_state_observe(struct golioth_client *state_client)
 	err = app_state_update_actual();
 	if (err) {
 		GLTH_LOGW(TAG, "Failed to Update Desired %d", err);
-		return err;
 	}
-
 	return err;
 }
 

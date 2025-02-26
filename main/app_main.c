@@ -48,7 +48,7 @@
 struct golioth_client *glth_client;
 
 static SemaphoreHandle_t _connected_sem = NULL;
-static const char *_current_version = "1.0.0";
+static const char *_current_version = "1.2.0";
 
 static void on_client_event(struct golioth_client *client,
 			    enum golioth_client_event event,
@@ -74,18 +74,16 @@ static esp_netif_t *init_openthread_netif(const esp_openthread_platform_config_t
 }
 
 static void async_stream_handler(struct golioth_client *client,
-                                 const struct golioth_response *response,
+                                 enum golioth_status status,
+                                 const struct golioth_coap_rsp_code *coap_rsp_code,
                                  const char *path,
-				 void *arg)
+                                 void *arg)
 {
-	if (response->status != GOLIOTH_OK) {
-		GLTH_LOGW(TAG, "Failed to push async stream payload: %d", response->status);
+	if (status != GOLIOTH_OK) {
+		GLTH_LOGW(TAG, "Failed to push async stream payload: %d", status);
 		return;
 	}
-
 	GLTH_LOGI(TAG, "Successfully pushed async stream payload");
-
-	return;
 }
 
 static void send_stream_payload(int* counter)
@@ -164,8 +162,7 @@ static void golioth_task(void *aContext)
 		send_stream_payload(&counter);
 		++counter;
 
-
-		/* fix: If LOOP_DELAY_S is changed, it won't take effect unitl the 
+		/* ToDo: If LOOP_DELAY_S is changed, it won't take effect unitl the
 		   previous value has expired.
 		*/
 	   	vTaskDelay((get_loop_delay_s() * 1000) / portTICK_PERIOD_MS);

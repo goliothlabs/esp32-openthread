@@ -23,9 +23,9 @@ int32_t get_loop_delay_s(void)
 
 static enum golioth_settings_status on_loop_delay_setting(int32_t new_value, void *arg)
 {
-    GLTH_LOGI(TAG, "Setting loop delay to %" PRId32 " s", new_value);
-    _loop_delay_s = new_value;
-    return GOLIOTH_SETTINGS_SUCCESS;
+	GLTH_LOGI(TAG, "Setting loop delay to %" PRId32 " s", new_value);
+	_loop_delay_s = new_value;
+	return GOLIOTH_SETTINGS_SUCCESS;
 }
 
 
